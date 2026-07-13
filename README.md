@@ -10,10 +10,11 @@ out of STAAD models, sort/finalize sections, and generate DXF drawings.
 vba/            VBA modules exported from the host workbook's VBA project
 com/
   RaghavStaadExtractor/            VB.NET source for the main COM add-in (RaghavStaadExtractor.dll)
-                                    — missing StaadDataExtractor.vb, DxfExporterRaghav.vb,
-                                    ExecutionValidation.vb (recovered below, not ported back yet)
-  RaghavStaadExtractor_decompiled/ Full C# decompile of bin/RaghavStaadExtractor.dll (via ilspycmd),
-                                    recovers the 3 files missing from the VB.NET source tree
+                                    — complete: all files the .vbproj references are present,
+                                    including StaadDataExtractor.vb / DxfExporterRaghav.vb /
+                                    ExecutionValidation.vb, ported back from decompiled C# (see below)
+  RaghavStaadExtractor_decompiled/ Full C# decompile of bin/RaghavStaadExtractor.dll (via ilspycmd) —
+                                    kept as the source of truth these 3 files were ported from
   RaghavTekNova/                   VB.NET source for a sibling COM add-in (bolt/assembly/drawing lists)
                                     — not currently referenced by anything in vba/, kept for reference
 bin/            Latest compiled RaghavStaadExtractor.dll/.tlb + netDxf dependency
@@ -30,11 +31,11 @@ calls `CreateObject("RaghavStaadExtractor.<Class>")` and invokes a method on it.
 
 | VBA macro (`vba/`) | ProgID / class | Source file |
 |---|---|---|
-| `ExtractStaadDataR1` (A1_StaadExtraction.vba) | `StaadDataExtractor` | `com/RaghavStaadExtractor_decompiled/RaghavStaadExtractor/StaadDataExtractor.cs` (decompiled — see below) |
+| `ExtractStaadDataR1` (A1_StaadExtraction.vba) | `StaadDataExtractor` | `com/RaghavStaadExtractor/StaadDataExtractor.vb` (ported from decompile — see below) |
 | `ByPassBeamDataFromStaad`, `ByPassForAnalysis` (BYPASS_BOQMODE.vba) | `StaadDataExtractor` | same as above |
 | `SectionSortingS2` (A2_create_Mps.vba) | `SectionSortingS2` | `com/RaghavStaadExtractor/SectionSortingS2.vb` |
 | `SectionFinalization` (A2_create_Mps.vba) | `SectionFinalization` | `com/RaghavStaadExtractor/SectionFinalization.vb` |
-| `ExportToDXF` (A3_DxfCreation.vba) | `DxfExporterRaghav` | `com/RaghavStaadExtractor_decompiled/RaghavStaadExtractor/DxfExporterRaghav.cs` (decompiled — see below) |
+| `ExportToDXF` (A3_DxfCreation.vba) | `DxfExporterRaghav` | `com/RaghavStaadExtractor/DxfExporterRaghav.vb` (ported from decompile — see below) |
 | `AssignSectionDatabase` (ASSIGN_SAVEAS_CLEAR.vba) | `AssignSectionDatabase` | `com/RaghavStaadExtractor/AssignSectionDatabase.vb` |
 | `SaveBeamOutput`, `SavePlateSummary` (ASSIGN_SAVEAS_CLEAR.vba) | `SaveSheetsManager` | `com/RaghavStaadExtractor/SaveAsPlate.vb` |
 | `Clear_Sheet1/2/AllSheets` (ASSIGN_SAVEAS_CLEAR.vba) | `ClearSheet` | `com/RaghavStaadExtractor/ClearSheet.vb` |
@@ -52,30 +53,52 @@ lists, drawing tracking) that lives alongside `RaghavStaadExtractor` on disk.
 Nothing in `vba/` currently calls it; it's included here because it's part of
 the same author's toolset, not because it's wired into this workbook.
 
-## Recovered via decompilation
+## Recovered via decompilation, ported back to VB.NET
 
 `StaadDataExtractor.vb`, `DxfExporterRaghav.vb`, and `ExecutionValidation.vb`
 were missing from every source location on disk (VS2022 working copy, all
 `BACKUP/` snapshots, the one `.zip` installer bundle that could be inspected).
-They only existed compiled into `bin/RaghavStaadExtractor.dll`. Recovered by
-decompiling that DLL with `ilspycmd` (ICSharpCode.Decompiler) — output is in
-**`com/RaghavStaadExtractor_decompiled/`** as a full C# project (decompilation
-only produces C#, not VB.NET, but it's functionally equivalent and readable).
+They only existed compiled into `bin/RaghavStaadExtractor.dll`.
+
+Recovery was two steps:
+1. Decompiled the DLL with `ilspycmd` (ICSharpCode.Decompiler) — decompilers
+   only emit C#, regardless of the original language, so this produced a full
+   C# project at `com/RaghavStaadExtractor_decompiled/` (kept as reference —
+   it's the source of truth the VB.NET below was ported from).
+2. Hand-ported those 3 classes from the decompiled C# back to VB.NET, cleaning
+   up decompiler artifacts (`goto`-based control flow reconstructed from IL,
+   `NewLateBinding`/`RuntimeHelpers.GetObjectValue`/`Conversions.` wrapper
+   noise, compiler-generated closure classes for lambdas) into idiomatic,
+   hand-written-quality VB.NET, while preserving exact behavior. Now living
+   directly in `com/RaghavStaadExtractor/` alongside the files that were
+   always there — **the project is complete**: every file
+   `RaghavStaadExtractor.vbproj` references now exists.
+
 The classes that matter:
 
-- `RaghavStaadExtractor/StaadDataExtractor.cs` (4448 lines) — the STAAD
-  parsing/extraction engine every extraction macro depends on.
-- `RaghavStaadExtractor/DxfExporterRaghav.cs` (3187 lines) — the DXF export
-  engine used by `ExportToDXF`.
-- `RaghavStaadExtractor/ExecutionValidation.cs` (383 lines) — confirmed to be
+- `StaadDataExtractor.vb` (1712 lines, from a 4448-line decompile) — the STAAD
+  extraction engine every extraction macro depends on. Talks to a *live*
+  STAAD.Pro session via the `StaadPro.OpenSTAAD` COM API (`GetSelectedBeams`,
+  `GetBeamLength`, `GetMemberIncidence`, etc.) — it does not parse `.STD`
+  files directly.
+- `DxfExporterRaghav.vb` (1892 lines, from a 3187-line decompile) — the DXF
+  export engine used by `ExportToDXF`, builds 3D beam geometry via the
+  `netDxf` library.
+- `ExecutionValidation.vb` (276 lines, from a 383-line decompile) — confirmed
   licensing logic: AES-encrypted trial-date check against
-  `C:\PlateNova\PlateNova.tst`, plus a bank of fake runtime-error strings shown
-  on failed validation (anti-tamper decoys). Explains why it was kept out of
+  `C:\PlateNova\PlateNova.tst`, a clock-rollback tamper check against
+  `%AppData%\RaghavStaad.last`, a hard expiry date, and a bank of 10
+  deliberately fake runtime-error strings shown on failure instead of an
+  honest license error (anti-crack decoys). Explains why it was kept out of
   the working source tree and behind `ConfuserEx` obfuscation.
 
-`Guid`/`ProgId` attributes on the decompiled classes were checked against what
-`vba/` actually calls (e.g. `[ProgId("RaghavStaadExtractor.StaadDataExtractor")]`)
-to confirm these are the right classes, not just similarly-named ones.
+`Guid`/`ProgId` attributes were checked against what `vba/` actually calls
+(e.g. `[ProgId("RaghavStaadExtractor.StaadDataExtractor")]`) to confirm these
+are the right classes, not just similarly-named ones. No compiler was
+available in this environment (no Visual Studio/MSBuild) to do a real build
+check — verification was manual (method-by-method comparison against the
+decompiled source, checked for leftover decompiler artifacts, balanced
+`Class`/`End Class` and `Function`/`End Function` blocks).
 
 ## Still missing
 
@@ -87,22 +110,32 @@ that doesn't appear anywhere searched in `PN/`.
 `com/RaghavStaadExtractor/My Project/DxfExporterGrid.vb` (the VB.NET source
 tree's stub for it) is an empty 3-byte placeholder.
 
-Two `.rar` archives in the original `PN/` folder
+The two `.rar` archives in the original `PN/` folder
 (`PlateNova v1.0.9.4.25_installer+files.rar`,
-`PlateNova v1.00.09.04.25_installer+files.rar`) were never inspected — no
-`7z`/`unrar` in this environment — but the one `.zip` archive that *could* be
-checked, with identical "installer+files" naming, turned out to be a compiled
-distributable bundle (dll + xlsm + license + installer script) with no source
-at all. Worth a manual check only if `RaghavStaadExporter.Grid` still needs
-recovering.
+`PlateNova v1.00.09.04.25_installer+files.rar`) have since been checked (7-Zip
+installed for this). Same story as the `.zip`: compiled distributable bundles
+only (dll + xlsm + license + installer script), no `.vb`/`.cs` source, and no
+`RaghavStaadExporter.Grid` DLL either. One interesting side note: the older
+archive's `RaghavStaadExtractor.dll` (365KB, dated 2025-09-13) is an
+obfuscated release build — `ConfusedByAttribute` and garbled Unicode class
+names confirm ConfuserEx — of the same codebase, not a different/richer
+version, so it adds nothing over the clean build already decompiled above.
+
+`RaghavStaadExporter.Grid` remains genuinely unrecovered — it isn't in any
+file searched across `PN/`, including both archives.
 
 ## Building the COM DLL
 
 `com/RaghavStaadExtractor/` and `com/RaghavTekNova/` are VS2022 VB.NET Class
-Library projects (COM-visible, registered via `regasm`/COM interop). Neither
-will currently build as-is: the three files recovered by decompilation live in
-`com/RaghavStaadExtractor_decompiled/` as C#, not as `.vb` files back in
-`com/RaghavStaadExtractor/` — porting them back to VB.NET (or converting the
-project to C#) is needed before the original project compiles again. The
-`RaghavStaadExporter.Grid` gap is unresolved regardless. `bin/` holds the last
-known good compiled output so the workbook keeps working without a rebuild.
+Library projects (COM-visible, registered via `regasm`/COM interop).
+`com/RaghavStaadExtractor/` now has every file its `.vbproj` references and
+should build in Visual Studio (needs `netDxf.netstandard` restored via
+`packages.config`, and the `Microsoft.Office.Interop.Excel`/`Core` COM
+references available). This has not been build-verified in this environment
+(no Visual Studio/MSBuild installed here) — worth a real build the first time
+it's opened in Visual Studio to catch anything the manual port missed.
+`com/RaghavTekNova/` still can't build — it's missing its own copy of
+`ExecutionValidation.vb` (not yet recovered; no compiled `RaghavTekNova.dll`
+has been located anywhere to decompile). `bin/` holds the last known good
+compiled `RaghavStaadExtractor.dll` so the workbook keeps working regardless
+of whether a rebuild is attempted.
