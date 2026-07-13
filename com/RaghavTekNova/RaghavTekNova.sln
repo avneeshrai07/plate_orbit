@@ -1,0 +1,27 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36408.4
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "RaghavTekNova", "RaghavTekNova.vbproj", "{24A96514-7156-426C-857A-D1C0B9A3ACEE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8EC462FD-D22E-90A8-E5CE-7E832BA40C5D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{24A96514-7156-426C-857A-D1C0B9A3ACEE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{24A96514-7156-426C-857A-D1C0B9A3ACEE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{24A96514-7156-426C-857A-D1C0B9A3ACEE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{24A96514-7156-426C-857A-D1C0B9A3ACEE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {DD005DE9-6F22-4D92-B1C0-CC64B7C6528B}
+	EndGlobalSection
+EndGlobal

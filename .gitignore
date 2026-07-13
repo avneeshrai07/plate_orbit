@@ -1,0 +1,19 @@
+# Visual Studio / .NET build output for the com/ sub-projects
+com/**/bin/
+com/**/obj/
+com/**/.vs/
+.vs/
+
+# NuGet package cache (restorable from packages.config)
+com/**/packages/
+
+# User-specific project settings
+*.user
+
+# Excel lock files
+~$*.xls*
+
+# OS cruft
+Thumbs.db
+desktop.ini
+.DS_Store

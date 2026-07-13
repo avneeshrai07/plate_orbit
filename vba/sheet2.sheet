@@ -1,0 +1,23 @@
+Private Sub Worksheet_Change(ByVal Target As Range)
+    Dim lastRow As Long
+    Dim sumRange As Range
+    Dim cell As Range
+    Dim totalWeight As Double
+
+    ' Only trigger if the changed cell is in Column E from row 9 downward
+    If Not Intersect(Target, Me.Range("E9:E" & Me.Rows.count)) Is Nothing Then
+        Application.EnableEvents = False  ' Prevent recursion
+
+        ' Find the last non-empty row in column E
+        lastRow = Me.Cells(Me.Rows.count, "E").End(xlUp).Row
+        If lastRow >= 9 Then
+            Set sumRange = Me.Range("E9:E" & lastRow)
+            totalWeight = Application.WorksheetFunction.Sum(sumRange)
+            Me.Range("F4").Value = totalWeight
+        Else
+            Me.Range("F4").Value = 0
+        End If
+
+        Application.EnableEvents = True
+    End If
+End Sub
