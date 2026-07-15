@@ -4,6 +4,19 @@ Consolidated project for the PlateNova Excel add-in: an Excel VBA front end that
 drives a compiled VB.NET COM DLL (`RaghavStaadExtractor`) to pull beam/plate data
 out of STAAD models, sort/finalize sections, and generate DXF drawings.
 
+## Why this repo exists
+
+The real logic of the PlateNova extractor lived only inside the compiled
+`RaghavStaadExtractor.dll`. The former developer who wrote it (the VBA/add-in
+carries the author tags "Peeyush" / "Raghav") left the company without handing
+over the source. What's here was reconstructed by **decompiling the shipped
+DLL** and hand-porting the lost classes back to VB.NET (see "Recovered via
+decompilation" below). This repo therefore serves two purposes:
+
+1. preserve a buildable source copy of the add-in, and
+2. act as the **reference specification for OptiPEB** — the from-scratch Python
+   reimplementation of exactly this tool (see "Relationship to OptiPEB").
+
 ## Layout
 
 ```
@@ -61,6 +74,120 @@ calls `CreateObject("RaghavStaadExtractor.<Class>")` and invokes a method on it.
 lists, drawing tracking) that lives alongside `RaghavStaadExtractor` on disk.
 Nothing in `vba/` currently calls it; it's included here because it's part of
 the same author's toolset, not because it's wired into this workbook.
+
+## The data pipeline (what the tool actually does)
+
+Everything runs against a **live STAAD.Pro session** (`StaadPro.OpenSTAAD`) and a
+**live Excel** instance — nothing parses `.STD` files directly. The PlateNova
+workbook has four working sheets, all protected with password **`2022`**:
+
+| Sheet | Role |
+|---|---|
+| **Sheet1** | Master beam list — raw extraction + per-member section "farming" and weight |
+| **Sheet2** | Per-plate summary → aggregated **Material Summary List** (the BOM) |
+| **Sheet3** | STAAD section database, copied from `RAGHAV DATABASE.xlsm` |
+| **Sheet4** | "Nova" grid system — X/Z grid names + coordinate spacing |
+
+### 1. Extract → Sheet1 (`StaadDataExtractor.ExtractBeamDataFromStaad`)
+
+Iterates the **currently selected beams** in STAAD (`GetNoOfSelectedBeams` /
+`GetSelectedBeams` — *selected*, not the whole model) and per member reads
+`GetBeamLength`, `GetBeamSectionName`, `GetBeamSectionPropertyRefNo`,
+`GetBeamSectionPropertyTypeNo`, `GetBetaAngle`, `GetMemberIncidence` (+
+`GetNodeCoordinates` for both ends), and the raw section-parameter array
+`GetSectionPropertyValuesEx` (F1..F7 for tapers, up to 11 slots otherwise). The
+job header block comes from `GetFullJobInfo`.
+
+### 2. Section farming + weight (`ProcessSectionFarmingAndWeight`)
+
+Decomposes each member into plates (WEB / TOP FLANGE / BOTTOM FLANGE) and
+computes weights, dispatching on the STAAD **section type code**:
+
+| Type code | Handling |
+|---|---|
+| **680** TAPER | general I-section: web depth minus flange thicknesses, two flanges from F4..F7 |
+| **697** UPT general | double section ("2x…"); split into two equal plates when flange ≠ web |
+| **690–699** UPT | area-based total weight only, tagged `UPT` |
+| **613 / 614 / 615** | prismatic plate composites (web-only / flange-only / both) |
+| **671 / 672** | passed through with **zero** computed weight |
+| name = `TUBE` / `PIPE` / `ROD` | closed-section formulas from outer/inner dimensions |
+| default | rolled I-section: average web + top/bottom flange |
+
+Steel density is hard-coded **7850 kg/m³** (written as `7850`, or `7.85` alongside
+mm dimensions). Weights round to 3 decimals.
+
+### 3. Summarize → Sheet2 (`SectionSortingS2` → `SectionFinalization`)
+
+`SummerizedToSheet2` explodes Sheet1 into one row per plate
+(`THK./SECTION | LENGTH(mm) | WIDTH(mm) | WEIGHT(kg)`); `FinalSummarySheet2`
+then groups identical sections into the **Material Summary List** (BOM), summing
+length and weight.
+
+### 4. Grids + frame analysis (optional, Sheet4)
+
+The grid definitions live on Sheet4: `GridSystem.ShowGridInputForm` pops a
+borderless WinForms dialog ("DEFINE GRIDS AS PER STAAD'S AXIS SYSTEM") with three
+column groups — **grid naming** (`B2:B4` = X/Y/Z name lists), **grid
+co-ordinates** (`C2:C4` = offset strings like `0 5*6000`), and **line
+extensions** (`D2:D4` margins, `E2` bubble text height) — plus FLIP X / FLIP Z
+(reverse a name list) and AUTO (fill default A–Z / 1–80 names or swap X↔Z) helpers.
+
+The `X` / `Z` / `G` prompt in cell `AW2` then drives frame analysis
+(`StaadDataExtractor`): beams are bucketed by their constant X or Z coordinate
+into named grids, and frames are compared for geometric similarity (same
+sections, spans, beta angle) to find repeated frames. `G` regenerates grid
+definitions; `X` / `Z` restrict analysis to predefined grids and write a
+similarity report to a `Frame Analysis/` folder.
+
+### 5. Drawings (`DxfExporterRaghav`, `netDxf`)
+
+`ExportBeamsToDxfWithPrompt` reads each member's end coordinates (cols P–U) from
+Sheet1, scales m → mm (×1000), applies a **view rotation** (`AS2` = 1 FRONT /
+2 BACK / 3 LEFT / 4 RIGHT / 5 TOP) and the member's beta angle, and draws a true
+**3D wireframe cross-section** per STAAD section-type code — pipe/rod
+(655/660), square/rect hollow tube (651/654/650/672), tapered I (680/610/697),
+tapered channel (630), and I-sections with extra cover plates (613/614/615) —
+built from `netDxf` `Line`/`Circle`/`Text`/`MText` entities on `Beams` /
+`LeaderLines` / `BeamText` / `GRID_*` layers. View-mode flags in `AS5` switch to
+per-section colour layers (100), colour layers without length text (101), or
+single-line mode (200). Each member gets a leader line + `MText` size label
+(web/TF/BF from cols 37–39, length from col 3). It also renders the Sheet4 grid
+as named bubbles (circle + text) around the model extents. Output goes to
+`<workbook>\PlateNovaDrawings\<name>.dxf` (AutoCad2010), with a success dialog
+offering "Show in Folder" / "Open in CAD".
+
+### Supporting classes
+
+**SupportReaction** — per-node Fx/Fy/Fz/Mx/My/Mz over a load-case range via
+`Output.GetSupportReactions`, with global min/max (present but not wired to any
+current button). **ColumnHider** — BOQ / Drawing / Normal column views (F:AJ are
+intermediate calc columns, always hidden). **ClearSheet** / **SaveSheetsManager**
+(Save-As beam output / material summary). **AssignSectionDatabase** +
+**RaghavDatabase** — build the Sheet3 unit-weight DB (`kg/m = Ax(cm²) × 0.785`).
+**Unlock**, **SheetSwitch**, **GridSystem** (WinForms input form). Every class
+starts with an `ExecutionValidation` license check.
+
+## Relationship to OptiPEB (the Python rewrite)
+
+**OptiPEB** (`C:\Users\avnee\Desktop\OptiPEB`) is a ground-up reimplementation of
+this add-in in Python — the same OpenSTAAD extraction and section/weight logic,
+but delivered as a FastAPI service (+ Next.js frontend) instead of Excel/VBA
+driving a COM DLL. This repo is its reference spec. Rough mapping:
+
+| PlateNova (VB.NET here) | OptiPEB (Python) |
+|---|---|
+| `StaadDataExtractor.ProcessBeamData` | `routes/beam_data` + `services/{geometry,property}_service` |
+| `ProcessSectionFarmingAndWeight` (F1..F7 → plates) | `core/section_geometry.taper_geometry` + `services/sections_service` |
+| `SectionSortingS2.SummerizedToSheet2` (per-plate rows) | `SectionPlate` / `build_member_plates` |
+| `SectionFinalization.FinalSummarySheet2` (BOM) | `build_sections_bom` (`/sections` endpoint) |
+| Nova grid system (Sheet4) | OptiPEB grid systems |
+| 7850 kg/m³, mm output, 345 MPa yield default | `services/sections_service` (same constants) |
+
+Key behavioural differences to keep in mind when porting: PlateNova extracts the
+**selected** beams into Excel, whereas OptiPEB serves **all** members over HTTP;
+and OptiPEB reads per-member design yield (FYLD) from the steel design brief,
+which PlateNova does not. The 7850 kg/m³ density, mm rounding, and section-type
+decomposition carry over verbatim.
 
 ## Recovered via decompilation, ported back to VB.NET
 
