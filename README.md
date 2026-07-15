@@ -70,10 +70,10 @@ calls `CreateObject("RaghavStaadExtractor.<Class>")` and invokes a method on it.
 | — (not called by any current VBA) | `SheetSwitch` | `com/RaghavStaadExtractor/My Project/SheetSwitch.vb` |
 | — (not called by any current VBA) | `SupportReaction` | `com/RaghavStaadExtractor/SupportReaction.vb` |
 
-`com/RaghavTekNova/` is a separate, related COM project (bolt lists, assembly
-lists, drawing tracking) that lives alongside `RaghavStaadExtractor` on disk.
-Nothing in `vba/` currently calls it; it's included here because it's part of
-the same author's toolset, not because it's wired into this workbook.
+`com/RaghavTekNova/` is a **separate sibling COM project** — a Tekla-Structures
+BOQ/fabrication tool, unrelated to STAAD. Nothing in this workbook's `vba/` calls
+it; it lives in its own workbook. Full breakdown in
+"[The RaghavTekNova sibling add-in](#the-raghavteknova-sibling-add-in)" below.
 
 ## The data pipeline (what the tool actually does)
 
@@ -188,6 +188,54 @@ Key behavioural differences to keep in mind when porting: PlateNova extracts the
 and OptiPEB reads per-member design yield (FYLD) from the steel design brief,
 which PlateNova does not. The 7850 kg/m³ density, mm rounding, and section-type
 decomposition carry over verbatim.
+
+## The RaghavTekNova sibling add-in
+
+`com/RaghavTekNova/` is a **completely separate** COM add-in (assembly name
+`RaghavTekNova`) with **no STAAD involvement** and **no connection to OptiPEB's
+scope**. Where PlateNova extracts a *design* model from STAAD, RaghavTekNova is a
+downstream **fabrication BOQ** tool: it imports **Tekla Structures** report
+exports and reformats them into billing/material lists. It ships in its own Excel
+workbook (not the PlateNova one — nothing in this repo's `vba/` calls it) and
+reuses the same licensing, `2022` sheet password, 2027-04-09 expiry, and a
+"Raghav" print footer.
+
+### Inputs (external Tekla `.xls`/`.xlsm` exports, placed next to the workbook)
+
+`PR_Assembly_list_Vba.xls` (+ `_Net_`/`_Gross_` variants), `PR_Bolt_list_Vba.xls`,
+`Assigned Bolt.xlsm`, `PR_Material_Part_list_vba.xls`,
+`PR_Drawing_Tracking_list_Vba.xls`.
+
+### Workbook sheet map
+
+| Sheet | Role | Sheet | Role |
+|---|---|---|---|
+| Sheet1 | Assembly List (formatted BOM) | Sheet7 | bolt staging (imported) |
+| Sheet2 | Bolt List | Sheet8 | assigned-bolt / bolt standards |
+| Sheet3 | BOQ Summary | Sheet9 | part staging (imported) |
+| Sheet4 | Part List | Sheet10 | Drawing Tracking (formatted) |
+| Sheet5 | Material Summary | Sheet11 | drawing staging (imported) |
+| Sheet6 | assembly staging (imported) | Sheet12+ | per-category split sheets |
+
+### Classes (each ProgId is `RaghavTekNova.<Class>`)
+
+| Class / file | Key methods | What it does |
+|---|---|---|
+| `GetAssemblyList` | `A1_GET…ASSEMBLY_LIST`, `B1_Get…Bolt_List`, `B2_Copy_Assigned_BoltData`, `P1_GET_MATERIAL_PART_LIST`, `V1_GET…Drawing_Tracking`, `SUMMARY_C1` | Import each Tekla `.xls` export into its staging sheet (6/7/8/9/11); build the Sheet3 **BOQ summary** by totaling weight(kg)/area(sqm) across the category sheets (12+) |
+| `RunAssemblyList` | `A2_RUN…ASSEMBLY_LIST` | Format staging Sheet6 → Sheet1 as "BILL OF MATERIAL (ASSEMBLY LIST)" (SR/CATEGORY/ASSEMBLY/PROFILE/MARK/LEN/QTY/WEIGHT/AREA/PARTS/DRAWINGS/GUID), summing weight & area |
+| `RunDrawingList` | `V2_RUN…Drawing_Tracking` | Format Sheet11 → Sheet10 as "BILL OF MATERIAL (DRAWING TRACKING LIST)" |
+| `AssemblyFinal` | `A4_Finalized_Assembly_list` | Clear the PROFILE column for assemblies containing >1 part |
+| `DuplicateAndUnlockedCheck` | `A3_Remove_Duplicate_Drawing_Check_Combine` (+ split `A3_Drawing_Check` / `A3_Remove_Duplicate` / toggle-filter) | Highlight assemblies whose drawing is **missing or unlocked in the Tekla model** (cols M/N); merge duplicate assembly marks (sum qty/weight/area, max unit values) |
+| `BoltList` | `Run_PR_Bolt_List`, `Calculate_Total_Bolt_weight`, `Organize_Boltdata` | Match each bolt dia/length against a standards sheet for unit weight; build `M-`/`H-` grade names; consolidate duplicate bolts |
+| `PartList` | `P2_RUN_MATERIAL_PART_LIST`, `P3_MATERIAL_LIST_SUMMARY`, `P4_SUMMERIZED_DATA` | Build the part list (Sheet9→Sheet4); summarize by profile+material (Sheet4→Sheet5); normalize plate profiles (`PL`/`CHEQ_PLT` → smallest dimension) and consolidate |
+| `SplitAntiSplit` | `GenerateSheetsByCategory`, `DeleteAndRenumberSheets` | Split the assembly list into one sheet per category (sheets 12+); or delete the generated sheets and renumber |
+| `GuidManager` (`Guid.vb`; also `DisplayGuid`/`RemoveGuid`) | `DisplayGuid` / `RemoveGuidDisplay` | Show/hide the assembly-GUID column O so a row can be searched back in the Tekla model |
+| `ClearSheets` | `ClearAllSheets`, `A8/B8/S3/P7/P8/V4_Clear_Sheet…` | Reset each list sheet to a blank template with an on-sheet button-legend panel |
+| `SaveAs` | `SaveSheet1..5/10As…`, `SaveCurrentSheet` | Export a list sheet to a clean `.xlsx` in `BOQ\` or `SaveAsBreakup\`, stripping controls/shapes, unlocking, deleting cols L+, and inserting a company logo into A2:B5 |
+
+**It cannot be built as-is:** its `.vbproj` references `ExecutionValidation.vb`,
+but that file is **absent from disk** (only `RaghavStaadExtractor` has a copy),
+and no compiled `RaghavTekNova.dll` was found to decompile it from.
 
 ## Recovered via decompilation, ported back to VB.NET
 
