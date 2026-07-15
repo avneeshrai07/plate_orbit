@@ -46,8 +46,8 @@ samples/staad/  Sample .STD STAAD models for testing extraction
 
 ## How it fits together
 
-The `vba/` modules never contain real logic — every button in the workbook
-calls `CreateObject("RaghavStaadExtractor.<Class>")` and invokes a method on it.
+Most `vba/` modules are thin shims — the button calls
+`CreateObject("RaghavStaadExtractor.<Class>")` and invokes one method on it.
 `com/RaghavStaadExtractor/` is the VB.NET source that compiles to that DLL
 (registered for COM interop, exposed via `<ProgId(...)>` attributes).
 
@@ -70,6 +70,19 @@ calls `CreateObject("RaghavStaadExtractor.<Class>")` and invokes a method on it.
 | — (not called by any current VBA) | `SheetSwitch` | `com/RaghavStaadExtractor/My Project/SheetSwitch.vb` |
 | — (not called by any current VBA) | `SupportReaction` | `com/RaghavStaadExtractor/SupportReaction.vb` |
 
+A handful of `vba/` modules **do** carry their own logic (they aren't COM shims):
+
+- **`KgToTon.vba`** (`ConvertWeightUnits`) — toggles the Sheet2 material summary
+  between kg↔ton and mm↔m, stashing the original kg in column Z.
+- **`DRAWING_MODE_VIEWS.vba`** — `FrontAndRun` / `BackAndRun` / `LeftAndRun` /
+  `RightAndRun` / `TopAndRun`: each writes the view code into `AR2`/`AS2`, then
+  chains `ByPassBeamDataFromStaad` + `ExportToDXF` (the elevation-drawing buttons).
+- **`GRID_SYSTEM.vba`** — `WriteX` / `WriteZ` / `WriteG` set the `AW2`
+  frame-analysis prompt (alongside `CallGridSystem`).
+- **`sheet2.sheet`** — a `Worksheet_Change` handler that live-sums column E into
+  `F4`.
+- **`OPEN_LINKEDIN.vba`** — opens the author's LinkedIn.
+
 `com/RaghavTekNova/` is a **separate sibling COM project** — a Tekla-Structures
 BOQ/fabrication tool, unrelated to STAAD. Nothing in this workbook's `vba/` calls
 it; it lives in its own workbook. Full breakdown in
@@ -85,7 +98,7 @@ workbook has four working sheets, all protected with password **`2022`**:
 |---|---|
 | **Sheet1** | Master beam list — raw extraction + per-member section "farming" and weight |
 | **Sheet2** | Per-plate summary → aggregated **Material Summary List** (the BOM) |
-| **Sheet3** | STAAD section database, copied from `RAGHAV DATABASE.xlsm` |
+| **Sheet3** | STAAD section database, copied from `RAGHAV DATABASE.xlsm` (a 32-sheet catalog of built-up profiles like `I80012B50012`, with `Area(cm²)` → `kg/m`) |
 | **Sheet4** | "Nova" grid system — X/Z grid names + coordinate spacing |
 
 ### 1. Extract → Sheet1 (`StaadDataExtractor.ExtractBeamDataFromStaad`)
@@ -163,9 +176,12 @@ offering "Show in Folder" / "Open in CAD".
 current button). **ColumnHider** — BOQ / Drawing / Normal column views (F:AJ are
 intermediate calc columns, always hidden). **ClearSheet** / **SaveSheetsManager**
 (Save-As beam output / material summary). **AssignSectionDatabase** +
-**RaghavDatabase** — build the Sheet3 unit-weight DB (`kg/m = Ax(cm²) × 0.785`).
-**Unlock**, **SheetSwitch**, **GridSystem** (WinForms input form). Every class
-starts with an `ExecutionValidation` license check.
+**RaghavDatabase** — build the Sheet3 unit-weight DB (`kg/m = Ax(cm²) × 0.785`)
+from the 32-sheet `RAGHAV DATABASE.xlsm` catalog. **Unlock**, **GridSystem**
+(WinForms input form). **SheetSwitch** — `SwitchToSheet1/2` nav plus
+`NormalizeView`, which restores the full Excel UI (ribbon/headings/gridlines)
+but is gated behind a **separate owner password `AVPR`** (not the `2022` sheet
+password). Every class starts with an `ExecutionValidation` license check.
 
 ## Relationship to OptiPEB (the Python rewrite)
 
@@ -269,12 +285,19 @@ The classes that matter:
   export engine used by `ExportToDXF`, builds 3D beam geometry via the
   `netDxf` library.
 - `ExecutionValidation.vb` (276 lines, from a 383-line decompile) — confirmed
-  licensing logic: AES-encrypted trial-date check against
-  `C:\PlateNova\PlateNova.tst`, a clock-rollback tamper check against
-  `%AppData%\RaghavStaad.last`, a hard expiry date, and a bank of 10
-  deliberately fake runtime-error strings shown on failure instead of an
-  honest license error (anti-crack decoys). Explains why it was kept out of
-  the working source tree and behind `ConfuserEx` obfuscation.
+  licensing logic (AES key/IV `AshuVedantRaghav`, PKCS7): during the free-trial
+  window (through **2025-12-31**) no license file is needed; after that it
+  requires `C:\PlateNova\ExecutionFile.lic`, whose lines are per-machine
+  `<BIOS-serial>=<expiry|forever>` entries (BIOS serial via WMI `Win32_BIOS`).
+  Anti-tamper: an AES-encrypted last-run timestamp in `C:\PlateNova\PlateNova.tst`
+  rejects clock rollback; on any failure it shows one of **10 deliberately fake
+  runtime-error strings** (decoys) and closes the workbook. Explains why it was
+  kept out of the working source tree and behind `ConfuserEx` obfuscation.
+
+  A **second, independent** expiry gate lives in each COM class's own
+  `CheckExpirationDateAndBackdate` (e.g. in `StaadDataExtractor`): a hard expiry
+  of **2027-04-09** plus a separate clock-rollback check against
+  `%AppData%\RaghavStaad.last`.
 
 `Guid`/`ProgId` attributes were checked against what `vba/` actually calls
 (e.g. `[ProgId("RaghavStaadExtractor.StaadDataExtractor")]`) to confirm these
