@@ -15,8 +15,17 @@ com/
                                     ExecutionValidation.vb, ported back from decompiled C# (see below)
   RaghavStaadExtractor_decompiled/ Full C# decompile of bin/RaghavStaadExtractor.dll (via ilspycmd) —
                                     kept as the source of truth these 3 files were ported from
+  RaghavStaadExtractor_decompiled_fresh/  A second, independent decompile of the same DLL (member-by-
+                                    member, via tools/decompile_dll/ — see below), produced later to spot-
+                                    check the hand-ported VB.NET against the compiled binary again. Not a
+                                    replacement for RaghavStaadExtractor_decompiled/, just corroboration.
   RaghavTekNova/                   VB.NET source for a sibling COM add-in (bolt/assembly/drawing lists)
                                     — not currently referenced by anything in vba/, kept for reference
+tools/
+  decompile_dll/                   Re-runnable script to regenerate RaghavStaadExtractor_decompiled_fresh/
+                                    from bin/RaghavStaadExtractor.dll without needing the .NET SDK or
+                                    ilspycmd (uses ICSharpCode.Decompiler via pythonnet instead) — see its
+                                    own README for setup/usage and why it decompiles member-by-member.
 bin/            Latest compiled RaghavStaadExtractor.dll/.tlb + netDxf dependency
 workbooks/      Host Excel workbook (PlateNova) and the section database workbook
 samples/staad/  Sample .STD STAAD models for testing extraction
